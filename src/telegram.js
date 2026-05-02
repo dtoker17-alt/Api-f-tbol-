@@ -53,4 +53,8 @@ async function sendReport(reports) {
   }
 }
 
-module.exports = { formatMatch, sendReport };
+async function sendError(msg) {
+  await bot.sendMessage(CHAT_ID, `⚠️ *Value Bets Bot*\n${msg}`, { parse_mode: 'Markdown' });
+}
+
+module.exports = { formatMatch, sendReport, sendError };

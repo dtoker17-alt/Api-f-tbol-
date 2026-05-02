@@ -2,7 +2,7 @@ require('dotenv').config();
 const { getTodayMatches, getTeamLastMatches, getEventDetail } = require('./api');
 const { calcTeamStats, estimateProbabilities, extractTeams, extractTeamId } = require('./analysis');
 const { detectValueBets } = require('./value');
-const { formatMatch, sendReport } = require('./telegram');
+const { formatMatch, sendReport, sendError } = require('./telegram');
 
 function validateEnv() {
   const missing = ['BIZZOIRO_API_KEY', 'TELEGRAM_BOT_TOKEN', 'TELEGRAM_CHAT_ID']
@@ -23,13 +23,10 @@ async function processMatch(match) {
     getEventDetail(fixtureId).catch(() => match),
   ]);
 
-  // Use detail (has embedded odds) or fallback to match itself
-  const eventWithOdds = detail || match;
+  const eventWithOdds = (detail && detail.id) ? detail : match;
 
   const homeStats = calcTeamStats(homeMatches, homeId);
   const awayStats = calcTeamStats(awayMatches, awayId);
-
-  // Skip if no historical data for both teams
   if (!homeStats && !awayStats) return null;
 
   const probs = estimateProbabilities(
@@ -38,7 +35,7 @@ async function processMatch(match) {
   );
 
   const valueBets = detectValueBets(probs, eventWithOdds);
-  if (valueBets.length === 0) return null; // skip matches without value bets
+  if (valueBets.length === 0) return null;
 
   match._teams = extractTeams(match);
   const text = formatMatch(match, probs, valueBets);
@@ -49,18 +46,23 @@ async function main() {
   validateEnv();
 
   console.log('🔍 Obteniendo partidos del día (México)...');
-  const matches = await getTodayMatches();
+  let matches;
+  try {
+    matches = await getTodayMatches();
+  } catch (err) {
+    await sendError(`Error al obtener partidos: ${err.message}`);
+    process.exit(1);
+  }
+
+  console.log(`📋 ${matches.length} partidos encontrados.`);
 
   if (!matches.length) {
-    console.log('No hay partidos hoy.');
+    await sendError('No se encontraron partidos para hoy.');
     process.exit(0);
   }
 
-  console.log(`📋 ${matches.length} partidos encontrados. Analizando...`);
-
   const reports = [];
   const batchSize = 5;
-
   for (let i = 0; i < matches.length; i += batchSize) {
     const batch = matches.slice(i, i + batchSize);
     const results = await Promise.all(batch.map(m => processMatch(m).catch(() => null)));
@@ -69,7 +71,7 @@ async function main() {
   }
 
   if (!reports.length) {
-    console.log('Sin value bets detectadas hoy.');
+    await sendError(`Se analizaron ${matches.length} partidos pero sin value bets detectadas hoy.`);
     process.exit(0);
   }
 
@@ -78,4 +80,8 @@ async function main() {
   console.log('📨 Listo.');
 }
 
-main().catch(err => { console.error('❌', err.message); process.exit(1); });
+main().catch(async err => {
+  console.error('❌', err.message);
+  await sendError(`Error crítico: ${err.message}`).catch(() => {});
+  process.exit(1);
+});
