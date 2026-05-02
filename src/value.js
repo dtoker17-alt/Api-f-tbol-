@@ -13,37 +13,43 @@ function calcValueBet(realProb, odd) {
 function extractOdds(oddsData) {
   const odds = { odd1: null, oddX: null, odd2: null, oddOver: null, oddUnder: null, oddHH: null, oddHA: null };
 
-  if (!oddsData || !Array.isArray(oddsData)) return odds;
+  if (!oddsData || typeof oddsData !== 'object') return odds;
 
-  for (const entry of oddsData) {
-    const bets = entry.bets || entry.values || [];
-    const name = (entry.name || entry.bet || '').toLowerCase();
+  // Bizzoiro BSD: odds embedded directly in event object
+  // Fields: odds_home, odds_draw, odds_away, odds_over_25, odds_under_25, etc.
+  if (oddsData.odds_home) {
+    odds.odd1 = parseFloat(oddsData.odds_home) || null;
+    odds.oddX = parseFloat(oddsData.odds_draw) || null;
+    odds.odd2 = parseFloat(oddsData.odds_away) || null;
+    odds.oddOver = parseFloat(oddsData.odds_over_25 || oddsData.odds_over_2_5) || null;
+    odds.oddUnder = parseFloat(oddsData.odds_under_25 || oddsData.odds_under_2_5) || null;
+    odds.oddHH = parseFloat(oddsData.odds_handicap_home || oddsData.odds_ah_home) || null;
+    odds.oddHA = parseFloat(oddsData.odds_handicap_away || oddsData.odds_ah_away) || null;
+    return odds;
+  }
 
-    if (name.includes('match winner') || name.includes('1x2') || name.includes('result')) {
-      for (const b of bets) {
-        const val = b.value || b.odd_value || '';
-        const price = parseFloat(b.odd || b.price || 0);
-        if (val === 'Home' || val === '1') odds.odd1 = price;
-        if (val === 'Draw' || val === 'X') odds.oddX = price;
-        if (val === 'Away' || val === '2') odds.odd2 = price;
+  // Fallback: array of bookmaker markets (legacy format)
+  if (Array.isArray(oddsData)) {
+    for (const entry of oddsData) {
+      const bets = entry.bets || entry.values || [];
+      const name = (entry.name || entry.bet || '').toLowerCase();
+
+      if (name.includes('match winner') || name.includes('1x2') || name.includes('result')) {
+        for (const b of bets) {
+          const val = b.value || b.odd_value || '';
+          const price = parseFloat(b.odd || b.price || 0);
+          if (val === 'Home' || val === '1') odds.odd1 = price;
+          if (val === 'Draw' || val === 'X') odds.oddX = price;
+          if (val === 'Away' || val === '2') odds.odd2 = price;
+        }
       }
-    }
-
-    if (name.includes('goals over/under') || name.includes('over/under')) {
-      for (const b of bets) {
-        const val = (b.value || b.odd_value || '').toLowerCase();
-        const price = parseFloat(b.odd || b.price || 0);
-        if (val.includes('over') && val.includes('2.5')) odds.oddOver = price;
-        if (val.includes('under') && val.includes('2.5')) odds.oddUnder = price;
-      }
-    }
-
-    if (name.includes('asian handicap') || name.includes('handicap')) {
-      for (const b of bets) {
-        const val = (b.value || b.odd_value || '').toLowerCase();
-        const price = parseFloat(b.odd || b.price || 0);
-        if (val.includes('home') || val === '1') odds.oddHH = price;
-        if (val.includes('away') || val === '2') odds.oddHA = price;
+      if (name.includes('over/under')) {
+        for (const b of bets) {
+          const val = (b.value || b.odd_value || '').toLowerCase();
+          const price = parseFloat(b.odd || b.price || 0);
+          if (val.includes('over') && val.includes('2.5')) odds.oddOver = price;
+          if (val.includes('under') && val.includes('2.5')) odds.oddUnder = price;
+        }
       }
     }
   }

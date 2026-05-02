@@ -9,9 +9,11 @@ function calcTeamStats(matches, teamId) {
   const total = matches.length;
 
   for (const m of matches) {
-    const isHome = String(m.teams?.home?.id) === String(teamId);
-    const homeGoals = m.goals?.home ?? m.score?.fulltime?.home ?? 0;
-    const awayGoals = m.goals?.away ?? m.score?.fulltime?.away ?? 0;
+    // Support both Bizzoiro BSD format (home_team/away_team) and legacy (teams.home.id)
+    const homeId = m.home_team?.id ?? m.home_team ?? m.teams?.home?.id;
+    const isHome = String(homeId) === String(teamId);
+    const homeGoals = m.home_score ?? m.goals?.home ?? m.score?.fulltime?.home ?? 0;
+    const awayGoals = m.away_score ?? m.goals?.away ?? m.score?.fulltime?.away ?? 0;
 
     if (isHome) {
       goalsScored += homeGoals;

@@ -13,16 +13,18 @@ function validateEnv() {
 }
 
 async function processMatch(match) {
-  const homeId = match.teams?.home?.id;
-  const awayId = match.teams?.away?.id;
-  const fixtureId = match.fixture?.id || match.id;
+  // Support Bizzoiro BSD format (home_team/away_team) and legacy (teams.home/away)
+  const homeId = match.home_team?.id ?? match.home_team ?? match.teams?.home?.id;
+  const awayId = match.away_team?.id ?? match.away_team ?? match.teams?.away?.id;
+  const fixtureId = match.id || match.fixture?.id;
 
   if (!homeId || !awayId || !fixtureId) return null;
 
+  // Odds embedded in event — getOdds fetches full event detail
   const [homeMatches, awayMatches, oddsData] = await Promise.all([
     getTeamLastMatches(homeId, 10).catch(() => []),
     getTeamLastMatches(awayId, 10).catch(() => []),
-    getOdds(fixtureId).catch(() => []),
+    getOdds(fixtureId).catch(() => match), // fallback to match itself (may already have odds)
   ]);
 
   const homeStats = calcTeamStats(homeMatches, homeId);

@@ -5,11 +5,13 @@ const bot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN, { polling: false });
 const CHAT_ID = process.env.TELEGRAM_CHAT_ID;
 
 function formatMatchReport(match, probs, valueBets) {
-  const home = match.teams?.home?.name || 'Local';
-  const away = match.teams?.away?.name || 'Visitante';
-  const league = match.league?.name || '';
-  const time = match.fixture?.date
-    ? new Date(match.fixture.date).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
+  // Support Bizzoiro BSD format (home_team.name) and legacy (teams.home.name)
+  const home = match.home_team?.name || match.teams?.home?.name || 'Local';
+  const away = match.away_team?.name || match.teams?.away?.name || 'Visitante';
+  const league = match.league?.name || match.competition?.name || match.tournament || '';
+  const dateStr = match.date || match.datetime || match.fixture?.date;
+  const time = dateStr
+    ? new Date(dateStr).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
     : '--:--';
 
   const valueBetsFound = valueBets.filter((b) => b.isValueBet);
