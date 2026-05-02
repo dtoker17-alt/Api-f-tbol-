@@ -1,0 +1,33 @@
+name: Daily Value Bets Analysis
+
+on:
+  schedule:
+    # Runs every day at 08:00 UTC (09:00 Spain / 04:00 LATAM)
+    - cron: '0 8 * * *'
+  workflow_dispatch: # allows manual trigger from GitHub app
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: claude/sports-betting-value-detector-2qZjU
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Run value bet detector
+        env:
+          BIZZOIRO_API_KEY: ${{ secrets.BIZZOIRO_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: npm start
