@@ -3,73 +3,54 @@ const TelegramBot = require('node-telegram-bot-api');
 
 const bot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN, { polling: false });
 const CHAT_ID = process.env.TELEGRAM_CHAT_ID;
+const TZ = 'America/Mexico_City';
 
-function formatMatchReport(match, probs, valueBets) {
-  // Support Bizzoiro BSD format (home_team.name) and legacy (teams.home.name)
-  const home = match.home_team?.name || match.teams?.home?.name || 'Local';
-  const away = match.away_team?.name || match.teams?.away?.name || 'Visitante';
-  const league = match.league?.name || match.competition?.name || match.tournament || '';
+function formatMatch(match, probs, valueBets) {
+  const { home, away } = match._teams;
+  const league = match.league?.name || match.tournament || match.competition?.name || '';
   const dateStr = match.date || match.datetime || match.fixture?.date;
   const time = dateStr
-    ? new Date(dateStr).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
-    : '--:--';
+    ? new Date(dateStr).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit', timeZone: TZ })
+    : '?';
+  const isLive = match.status === 'LIVE' || match.status === '1H' || match.status === '2H' || match.status === 'HT';
+  const status = isLive ? ' 🔴EN VIVO' : '';
 
-  const valueBetsFound = valueBets.filter((b) => b.isValueBet);
+  let msg = `⚽ *${home} vs ${away}*${status}\n`;
+  msg += `🏆 ${league} | 🕐 ${time} MX\n`;
 
-  let msg = `⚽ *${home} vs ${away}*\n`;
-  msg += `🏆 ${league} | 🕐 ${time}\n\n`;
-  msg += `📊 *Goles esperados:* ${probs.expectedHomeGoals.toFixed(2)} - ${probs.expectedAwayGoals.toFixed(2)}\n\n`;
-
-  msg += `📈 *Probabilidades estimadas:*\n`;
-  msg += `  1 (Local): ${(probs.prob1 * 100).toFixed(1)}%\n`;
-  msg += `  X (Empate): ${(probs.probX * 100).toFixed(1)}%\n`;
-  msg += `  2 (Visit.): ${(probs.prob2 * 100).toFixed(1)}%\n`;
-  msg += `  Over 2.5: ${(probs.probOver * 100).toFixed(1)}%\n`;
-  msg += `  Under 2.5: ${(probs.probUnder * 100).toFixed(1)}%\n\n`;
-
-  if (valueBetsFound.length > 0) {
-    msg += `🎯 *VALUE BETS DETECTADAS:*\n`;
-    for (const b of valueBetsFound) {
-      const edge = (parseFloat(b.value) * 100).toFixed(1);
-      msg += `  ✅ *${b.label}* @ ${b.odd}\n`;
-      msg += `     Prob real: ${b.estimatedProb} | Impl: ${b.impliedProb} | Edge: +${edge}%\n`;
-    }
-  } else {
-    msg += `❌ *Sin value bets en este partido*\n`;
+  if (probs.source === 'stats') {
+    msg += `📊 Goles esp: ${probs.expectedHomeGoals.toFixed(1)}-${probs.expectedAwayGoals.toFixed(1)} | 1:${(probs.prob1*100).toFixed(0)}% X:${(probs.probX*100).toFixed(0)}% 2:${(probs.prob2*100).toFixed(0)}%\n`;
   }
 
-  msg += `\n${'─'.repeat(30)}\n`;
-  return msg;
+  for (const b of valueBets) {
+    msg += `✅ *${b.label}* @ ${b.odd} → Edge: +${(b.edge * 100).toFixed(0)}%\n`;
+  }
+
+  return msg + '─'.repeat(28) + '\n';
 }
 
-async function sendReport(matchReports) {
-  const header = `🤖 *ANÁLISIS DE VALUE BETS*\n📅 ${new Date().toLocaleDateString('es-ES', {
-    weekday: 'long',
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-  })}\n${'═'.repeat(30)}\n\n`;
-
-  const totalValue = matchReports.filter((r) => r.hasValueBets).length;
-  const footer = `\n📌 *Partidos con value bets: ${totalValue}/${matchReports.length}*`;
+async function sendReport(reports) {
+  const now = new Date().toLocaleDateString('es-MX', {
+    weekday: 'short', day: 'numeric', month: 'short', timeZone: TZ,
+  });
+  const header = `🤖 *VALUE BETS DEL DÍA* — ${now}\n${'═'.repeat(28)}\n\n`;
+  const footer = `\n📌 *${reports.length} partidos con value*`;
 
   const chunks = [];
   let current = header;
 
-  for (const r of matchReports) {
+  for (const r of reports) {
     if (current.length + r.text.length > 4000) {
       chunks.push(current);
       current = '';
     }
     current += r.text;
   }
-
-  current += footer;
-  chunks.push(current);
+  chunks.push(current + footer);
 
   for (const chunk of chunks) {
     await bot.sendMessage(CHAT_ID, chunk, { parse_mode: 'Markdown' });
   }
 }
 
-module.exports = { formatMatchReport, sendReport };
+module.exports = { formatMatch, sendReport };

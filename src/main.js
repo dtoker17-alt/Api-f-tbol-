@@ -1,83 +1,81 @@
 require('dotenv').config();
-const { getTodayMatches, getTeamLastMatches, getOdds } = require('./api');
-const { calcTeamStats, estimateProbabilities } = require('./analysis');
+const { getTodayMatches, getTeamLastMatches, getEventDetail } = require('./api');
+const { calcTeamStats, estimateProbabilities, extractTeams, extractTeamId } = require('./analysis');
 const { detectValueBets } = require('./value');
-const { formatMatchReport, sendReport } = require('./telegram');
+const { formatMatch, sendReport } = require('./telegram');
 
 function validateEnv() {
-  const required = ['BIZZOIRO_API_KEY', 'TELEGRAM_BOT_TOKEN', 'TELEGRAM_CHAT_ID'];
-  const missing = required.filter((k) => !process.env[k]);
-  if (missing.length > 0) {
-    throw new Error(`Variables de entorno faltantes: ${missing.join(', ')}`);
-  }
+  const missing = ['BIZZOIRO_API_KEY', 'TELEGRAM_BOT_TOKEN', 'TELEGRAM_CHAT_ID']
+    .filter(k => !process.env[k]);
+  if (missing.length) throw new Error(`Variables faltantes: ${missing.join(', ')}`);
 }
 
 async function processMatch(match) {
-  // Support Bizzoiro BSD format (home_team/away_team) and legacy (teams.home/away)
-  const homeId = match.home_team?.id ?? match.home_team ?? match.teams?.home?.id;
-  const awayId = match.away_team?.id ?? match.away_team ?? match.teams?.away?.id;
+  const homeId = extractTeamId(match.home_team);
+  const awayId = extractTeamId(match.away_team);
   const fixtureId = match.id || match.fixture?.id;
 
   if (!homeId || !awayId || !fixtureId) return null;
 
-  // Odds embedded in event — getOdds fetches full event detail
-  const [homeMatches, awayMatches, oddsData] = await Promise.all([
+  const [homeMatches, awayMatches, detail] = await Promise.all([
     getTeamLastMatches(homeId, 10).catch(() => []),
     getTeamLastMatches(awayId, 10).catch(() => []),
-    getOdds(fixtureId).catch(() => match), // fallback to match itself (may already have odds)
+    getEventDetail(fixtureId).catch(() => match),
   ]);
+
+  // Use detail (has embedded odds) or fallback to match itself
+  const eventWithOdds = detail || match;
 
   const homeStats = calcTeamStats(homeMatches, homeId);
   const awayStats = calcTeamStats(awayMatches, awayId);
-  const probs = estimateProbabilities(homeStats, awayStats);
-  const valueBets = detectValueBets(probs, oddsData);
-  const text = formatMatchReport(match, probs, valueBets);
 
-  return {
-    text,
-    hasValueBets: valueBets.some((b) => b.isValueBet),
-    fixtureId,
-  };
+  // Skip if no historical data for both teams
+  if (!homeStats && !awayStats) return null;
+
+  const probs = estimateProbabilities(
+    homeStats || { avgScored: 1, avgConceded: 1, overRate: 0.5, homeWinRate: 0.4, awayWinRate: 0.3 },
+    awayStats || { avgScored: 1, avgConceded: 1, overRate: 0.5, homeWinRate: 0.4, awayWinRate: 0.3 },
+  );
+
+  const valueBets = detectValueBets(probs, eventWithOdds);
+  if (valueBets.length === 0) return null; // skip matches without value bets
+
+  match._teams = extractTeams(match);
+  const text = formatMatch(match, probs, valueBets);
+  return { text };
 }
 
 async function main() {
   validateEnv();
 
-  console.log('🔍 Obteniendo partidos del día...');
+  console.log('🔍 Obteniendo partidos del día (México)...');
   const matches = await getTodayMatches();
 
-  if (!matches || matches.length === 0) {
-    console.log('No hay partidos disponibles hoy.');
+  if (!matches.length) {
+    console.log('No hay partidos hoy.');
     process.exit(0);
   }
 
   console.log(`📋 ${matches.length} partidos encontrados. Analizando...`);
 
-  // Process in batches of 5 to avoid rate limiting
-  const batchSize = 5;
   const reports = [];
+  const batchSize = 5;
 
   for (let i = 0; i < matches.length; i += batchSize) {
     const batch = matches.slice(i, i + batchSize);
-    const results = await Promise.all(batch.map((m) => processMatch(m).catch(() => null)));
-    results.filter(Boolean).forEach((r) => reports.push(r));
-
-    if (i + batchSize < matches.length) {
-      await new Promise((res) => setTimeout(res, 1000));
-    }
+    const results = await Promise.all(batch.map(m => processMatch(m).catch(() => null)));
+    results.filter(Boolean).forEach(r => reports.push(r));
+    if (i + batchSize < matches.length) await new Promise(r => setTimeout(r, 800));
   }
 
-  if (reports.length === 0) {
-    console.log('No se pudo procesar ningún partido.');
+  if (!reports.length) {
+    console.log('Sin value bets detectadas hoy.');
     process.exit(0);
   }
 
-  console.log(`✅ ${reports.length} partidos analizados. Enviando a Telegram...`);
+  console.log(`✅ ${reports.length} partidos con value bets. Enviando a Telegram...`);
   await sendReport(reports);
-  console.log('📨 Reporte enviado correctamente.');
+  console.log('📨 Listo.');
 }
 
-main().catch((err) => {
-  console.error('❌ Error:', err.message);
-  process.exit(1);
-});
+main().catch(err => { console.error('❌', err.message); process.exit(1); });

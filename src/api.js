@@ -12,30 +12,38 @@ const client = axios.create({
 
 function toResults(data) {
   if (Array.isArray(data)) return data;
-  if (data && Array.isArray(data.results)) return data.results;
-  if (data && Array.isArray(data.data)) return data.data;
+  if (data?.results) return data.results;
+  if (data?.data) return data.data;
   return [];
 }
 
 async function getTodayMatches() {
-  const today = new Date().toISOString().split('T')[0];
-  const res = await client.get('/events/', {
-    params: { date: today },
-  });
-  return toResults(res.data);
+  const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Mexico_City' });
+  // Get both upcoming (NS) and live matches
+  const [upcoming, live] = await Promise.all([
+    client.get('/events/', { params: { date: today, status: 'NS' } }).catch(() => ({ data: [] })),
+    client.get('/events/', { params: { date: today, status: 'LIVE' } }).catch(() => ({ data: [] })),
+  ]);
+  const all = [...toResults(upcoming.data), ...toResults(live.data)];
+
+  // Log first match structure for debugging
+  if (all.length > 0) {
+    console.log('🔍 Estructura del primer partido:', JSON.stringify(all[0], null, 2));
+  }
+  return all;
 }
 
 async function getTeamLastMatches(teamId, limit = 10) {
+  // Try different param names the BSD API might use
   const res = await client.get('/events/', {
-    params: { team: teamId, limit, status: 'finished' },
+    params: { team: teamId, limit, ordering: '-date' },
   });
   return toResults(res.data).slice(0, limit);
 }
 
-// Odds are embedded in the event object — no separate call needed
-async function getOdds(fixtureId) {
+async function getEventDetail(fixtureId) {
   const res = await client.get(`/events/${fixtureId}/`);
   return res.data || {};
 }
 
-module.exports = { getTodayMatches, getTeamLastMatches, getOdds };
+module.exports = { getTodayMatches, getTeamLastMatches, getEventDetail };

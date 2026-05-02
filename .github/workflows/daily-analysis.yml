@@ -2,28 +2,23 @@ name: Daily Value Bets Analysis
 
 on:
   schedule:
-    # Runs every day at 08:00 UTC (09:00 Spain / 04:00 LATAM)
-    - cron: '0 8 * * *'
-  workflow_dispatch: # allows manual trigger from GitHub app
+    - cron: '0 14 * * *'  # 08:00 México (UTC-6)
+  workflow_dispatch:       # trigger manual desde GitHub app
+  push:
+    branches: [main]       # también corre en cada push a main
 
 jobs:
   analyze:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          ref: claude/sports-betting-value-detector-2qZjU
+      - uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: 'npm'
 
-      - name: Install dependencies
-        run: npm install
+      - run: npm install
 
       - name: Run value bet detector
         env:

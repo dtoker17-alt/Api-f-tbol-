@@ -1,94 +1,87 @@
+// Extract team names trying every possible BSD field variant
+function extractTeams(match) {
+  const home =
+    match.home_team?.name ||
+    match.home_team_name ||
+    match.home_name ||
+    match.localTeam?.name ||
+    (typeof match.home_team === 'string' ? match.home_team : null) ||
+    'Local';
+
+  const away =
+    match.away_team?.name ||
+    match.away_team_name ||
+    match.away_name ||
+    match.visitorTeam?.name ||
+    (typeof match.away_team === 'string' ? match.away_team : null) ||
+    'Visitante';
+
+  return { home, away };
+}
+
+function extractTeamId(field) {
+  if (!field) return null;
+  if (typeof field === 'object') return field.id;
+  return field; // plain integer
+}
+
 function calcTeamStats(matches, teamId) {
-  let goalsScored = 0;
-  let goalsConceded = 0;
-  let homeMatches = 0;
-  let awayMatches = 0;
-  let homeWins = 0;
-  let awayWins = 0;
+  let goalsScored = 0, goalsConceded = 0;
+  let homeWins = 0, homeTotal = 0;
+  let awayWins = 0, awayTotal = 0;
   let overCount = 0;
-  const total = matches.length;
 
   for (const m of matches) {
-    // Support both Bizzoiro BSD format (home_team/away_team) and legacy (teams.home.id)
-    const homeId = m.home_team?.id ?? m.home_team ?? m.teams?.home?.id;
+    const homeId = extractTeamId(m.home_team);
     const isHome = String(homeId) === String(teamId);
-    const homeGoals = m.home_score ?? m.goals?.home ?? m.score?.fulltime?.home ?? 0;
-    const awayGoals = m.away_score ?? m.goals?.away ?? m.score?.fulltime?.away ?? 0;
+    const hg = m.home_score ?? m.goals?.home ?? m.score?.fulltime?.home ?? null;
+    const ag = m.away_score ?? m.goals?.away ?? m.score?.fulltime?.away ?? null;
+    if (hg === null || ag === null) continue;
 
     if (isHome) {
-      goalsScored += homeGoals;
-      goalsConceded += awayGoals;
-      homeMatches++;
-      if (homeGoals > awayGoals) homeWins++;
+      goalsScored += hg; goalsConceded += ag; homeTotal++;
+      if (hg > ag) homeWins++;
     } else {
-      goalsScored += awayGoals;
-      goalsConceded += homeGoals;
-      awayMatches++;
-      if (awayGoals > homeGoals) awayWins++;
+      goalsScored += ag; goalsConceded += hg; awayTotal++;
+      if (ag > hg) awayWins++;
     }
-
-    if (homeGoals + awayGoals > 2.5) overCount++;
+    if (hg + ag > 2.5) overCount++;
   }
 
-  if (total === 0) {
-    return {
-      avgScored: 0,
-      avgConceded: 0,
-      overRate: 0,
-      homeWinRate: 0,
-      awayWinRate: 0,
-    };
-  }
+  const total = homeTotal + awayTotal;
+  if (total === 0) return null; // no usable data
 
   return {
     avgScored: goalsScored / total,
     avgConceded: goalsConceded / total,
     overRate: overCount / total,
-    homeWinRate: homeMatches > 0 ? homeWins / homeMatches : 0,
-    awayWinRate: awayMatches > 0 ? awayWins / awayMatches : 0,
+    homeWinRate: homeTotal > 0 ? homeWins / homeTotal : 0.4,
+    awayWinRate: awayTotal > 0 ? awayWins / awayTotal : 0.3,
   };
 }
 
 function estimateProbabilities(homeStats, awayStats) {
-  // Expected goals using attack/defense averages
-  const expectedHomeGoals = (homeStats.avgScored + awayStats.avgConceded) / 2;
-  const expectedAwayGoals = (awayStats.avgScored + homeStats.avgConceded) / 2;
-  const totalExpected = expectedHomeGoals + expectedAwayGoals;
+  const expH = (homeStats.avgScored + awayStats.avgConceded) / 2;
+  const expA = (awayStats.avgScored + homeStats.avgConceded) / 2;
+  const tot = expH + expA || 1;
 
-  // 1X2 probabilities weighted by home/away performance
-  const homeStrength = homeStats.homeWinRate * 0.6 + (expectedHomeGoals / (totalExpected || 1)) * 0.4;
-  const awayStrength = awayStats.awayWinRate * 0.6 + (expectedAwayGoals / (totalExpected || 1)) * 0.4;
-  const drawBase = 1 - homeStrength - awayStrength;
-
-  const raw1 = Math.max(homeStrength, 0.05);
-  const rawX = Math.max(drawBase, 0.1);
-  const raw2 = Math.max(awayStrength, 0.05);
-  const sumRaw = raw1 + rawX + raw2;
-
-  const prob1 = raw1 / sumRaw;
-  const probX = rawX / sumRaw;
-  const prob2 = raw2 / sumRaw;
-
-  // Over/Under 2.5
-  const avgOverRate = (homeStats.overRate + awayStats.overRate) / 2;
-  const probOver = Math.min(Math.max(avgOverRate, 0.1), 0.9);
-  const probUnder = 1 - probOver;
-
-  // Handicap: home -1
-  const probHandicapHome = expectedHomeGoals - expectedAwayGoals > 1 ? 0.45 : 0.25;
-  const probHandicapAway = expectedAwayGoals - expectedHomeGoals > 1 ? 0.45 : 0.25;
+  const s1 = homeStats.homeWinRate * 0.6 + (expH / tot) * 0.4;
+  const s2 = awayStats.awayWinRate * 0.6 + (expA / tot) * 0.4;
+  const sX = Math.max(1 - s1 - s2, 0.1);
+  const sum = Math.max(s1, 0.05) + sX + Math.max(s2, 0.05);
 
   return {
-    expectedHomeGoals,
-    expectedAwayGoals,
-    prob1,
-    probX,
-    prob2,
-    probOver,
-    probUnder,
-    probHandicapHome,
-    probHandicapAway,
+    expectedHomeGoals: expH,
+    expectedAwayGoals: expA,
+    prob1: Math.max(s1, 0.05) / sum,
+    probX: sX / sum,
+    prob2: Math.max(s2, 0.05) / sum,
+    probOver: Math.min(Math.max((homeStats.overRate + awayStats.overRate) / 2, 0.1), 0.9),
+    probUnder: 1 - Math.min(Math.max((homeStats.overRate + awayStats.overRate) / 2, 0.1), 0.9),
+    probHandicapHome: expH - expA > 1 ? 0.45 : 0.25,
+    probHandicapAway: expA - expH > 1 ? 0.45 : 0.25,
+    source: 'stats',
   };
 }
 
-module.exports = { calcTeamStats, estimateProbabilities };
+module.exports = { calcTeamStats, estimateProbabilities, extractTeams, extractTeamId };
