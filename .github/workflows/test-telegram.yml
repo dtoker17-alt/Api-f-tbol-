@@ -1,0 +1,31 @@
+name: Test Telegram Connection
+
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/test-telegram.yml']
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send test message to Telegram
+        run: |
+          curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -d chat_id="${TELEGRAM_CHAT_ID}" \
+            -d text="✅ Bot funcionando correctamente. Secrets OK." \
+            -d parse_mode="Markdown"
+          echo "Curl exit: $?"
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+
+      - name: Verify secrets are set
+        run: |
+          if [ -z "$TELEGRAM_BOT_TOKEN" ]; then echo "❌ TELEGRAM_BOT_TOKEN vacío"; else echo "✅ TELEGRAM_BOT_TOKEN OK"; fi
+          if [ -z "$TELEGRAM_CHAT_ID" ]; then echo "❌ TELEGRAM_CHAT_ID vacío"; else echo "✅ TELEGRAM_CHAT_ID OK"; fi
+          if [ -z "$BIZZOIRO_API_KEY" ]; then echo "❌ BIZZOIRO_API_KEY vacío"; else echo "✅ BIZZOIRO_API_KEY OK"; fi
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          BIZZOIRO_API_KEY: ${{ secrets.BIZZOIRO_API_KEY }}
